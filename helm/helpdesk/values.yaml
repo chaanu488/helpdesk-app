@@ -1,0 +1,65 @@
+# values.yaml — ค่า default ที่ใช้ใน templates
+# override ได้ด้วย: helm install -f my-values.yaml หรือ --set key=value
+
+namespace: helpdesk
+
+postgres:
+  image: postgres:16-alpine
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: "128m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+redis:
+  image: valkey/valkey:8-alpine
+  storage: 256Mi
+  resources:
+    requests:
+      cpu: "64m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+backend:
+  image: helpdesk-backend
+  tag: local
+  pullPolicy: Never
+  replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUPercent: 60
+
+frontend:
+  image: helpdesk-frontend
+  tag: local
+  pullPolicy: Never
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+ingress:
+  host: helpdesk.local
+  tlsSecret: helpdesk-tls
+
+# Secrets — ใน production ใช้ external-secrets หรือ vault แทน hardcode
+secrets:
+  databaseUrl: "postgres://helpdesk:helpdesk@postgres:5432/helpdesk"
+  redisUrl: "redis://redis:6379"

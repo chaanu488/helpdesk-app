@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helpdesk-backend
+  namespace: helpdesk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helpdesk-backend
+  template:
+    metadata:
+      labels:
+        app: helpdesk-backend
+    spec:
+      containers:
+        - name: backend
+          image: helpdesk-backend:local
+          imagePullPolicy: Never
+          # ↑ Never = ใช้ image ที่อยู่ใน minikube's Docker daemon เท่านั้น
+          #   ไม่พยายาม pull จาก Docker Hub
+          #   ต้องใช้ร่วมกับ eval $(minikube docker-env) ตอน build
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: helpdesk-config   # โหลด NODE_ENV และ config อื่นๆ จาก ConfigMap
+          env:
+            # Sensitive values ยังคงอยู่ใน Secret
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: helpdesk-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: helpdesk-secrets
+                  key: redis-url
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /          # GET / → { status: 'ok', service: 'helpdesk-api' }
+              port: 3000
+            initialDelaySeconds: 15   # รอ DB connection ก่อน
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10   # รอให้ app ขึ้นมา accept request ได้
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helpdesk-backend
+  namespace: helpdesk
+spec:
+  selector:
+    app: helpdesk-backend
+  ports:
+    - port: 3000
+      targetPort: 3000
+  # type: ClusterIP (default) = เข้าได้แค่ใน cluster

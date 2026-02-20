@@ -1,0 +1,6 @@
+apiVersion: v2
+name: helpdesk
+description: Helpdesk application — backend, frontend, postgres, redis
+type: application
+version: 0.1.0      # chart version (bump เมื่อเปลี่ยน chart)
+appVersion: "1.0.0" # app version (ใช้แสดงข้อมูลเท่านั้น)

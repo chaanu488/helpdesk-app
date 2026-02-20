@@ -1,0 +1,22 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: helpdesk-backend
+  namespace: helpdesk
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: helpdesk-backend    # ชี้ไป Deployment ที่จะ scale
+  minReplicas: 1              # ขั้นต่ำ — ไม่ scale ลงต่ำกว่านี้
+  maxReplicas: 5              # สูงสุด — ป้องกัน runaway scaling
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+          # เมื่อ CPU usage เฉลี่ยทุก pod เกิน 60% → scale up
+          # หมายเหตุ: คำนวณจาก requests (100m) ไม่ใช่ limits
+          # 60% ของ 100m = 60m CPU → ถ้า pod ใช้เกิน 60m → scale up

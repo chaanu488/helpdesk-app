@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: helpdesk
+spec:
+  accessModes:
+    - ReadWriteOnce     # pod เดียวอ่าน-เขียนได้ (เหมาะกับ DB ที่มี 1 replica)
+  resources:
+    requests:
+      storage: 1Gi      # minikube ใช้ hostPath driver — จอง 1Gi บน disk จริง
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: helpdesk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: helpdesk
+            - name: POSTGRES_PASSWORD
+              value: helpdesk
+            - name: POSTGRES_DB
+              value: helpdesk
+          resources:
+            requests:
+              cpu: "128m"       # 0.128 core — ขั้นต่ำที่ k8s จะจอง node ให้
+              memory: "256Mi"
+            limits:
+              cpu: "500m"       # ใช้ได้สูงสุด 0.5 core (throttle ถ้าเกิน)
+              memory: "512Mi"   # OOMKilled ถ้าเกิน
+          livenessProbe:
+            # liveness: pod ยัง "มีชีวิต" ไหม? ถ้า fail → k8s restart pod อัตโนมัติ
+            exec:
+              command: ["pg_isready", "-U", "helpdesk", "-d", "helpdesk"]
+            initialDelaySeconds: 15   # รอ 15s หลัง pod start (DB ใช้เวลา init)
+            periodSeconds: 20         # check ทุก 20s
+            failureThreshold: 3       # fail 3 ครั้งติดกัน → restart
+          readinessProbe:
+            # readiness: pod พร้อมรับ traffic ไหม? ถ้า fail → เอาออกจาก Service endpoints
+            exec:
+              command: ["pg_isready", "-U", "helpdesk", "-d", "helpdesk"]
+            initialDelaySeconds: 5    # รอสั้นกว่า liveness — แค่ดูว่า accept connection ได้
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-pvc   # ชี้ไป PVC ที่สร้างด้านบน
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: helpdesk
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
