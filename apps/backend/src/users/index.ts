@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia';
 import { db } from '../lib/db';
-import { users } from '../lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { users, companies } from '../lib/db/schema';
+import { eq, asc } from 'drizzle-orm';
 import { authPlugin, requireAuth, requireRole } from '../auth';
 import { usersModel } from './model';
 
@@ -17,6 +17,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         name: users.name,
         role: users.role,
         avatarUrl: users.avatarUrl,
+        companyId: users.companyId,
         createdAt: users.createdAt,
       })
       .from(users)
@@ -43,6 +44,7 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
           name: users.name,
           role: users.role,
           avatarUrl: users.avatarUrl,
+          companyId: users.companyId,
         });
       return updated;
     },
@@ -57,10 +59,13 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
         name: users.name,
         role: users.role,
         avatarUrl: users.avatarUrl,
+        companyId: users.companyId,
+        companyName: companies.name,
         createdAt: users.createdAt,
       })
       .from(users)
-      .orderBy(users.createdAt);
+      .leftJoin(companies, eq(users.companyId, companies.id))
+      .orderBy(asc(users.createdAt));
   })
   .patch(
     '/:id/role',
@@ -86,5 +91,32 @@ export const usersRoutes = new Elysia({ prefix: '/users' })
     {
       params: 'user.params',
       body: 'user.update.role',
+    }
+  )
+  .patch(
+    '/:id/company',
+    async ({ params, body, user, set }) => {
+      requireRole(user, 'admin');
+      const [updated] = await db
+        .update(users)
+        .set({ companyId: body.companyId, updatedAt: new Date() })
+        .where(eq(users.id, params.id))
+        .returning({
+          id: users.id,
+          email: users.email,
+          name: users.name,
+          role: users.role,
+          companyId: users.companyId,
+        });
+
+      if (!updated) {
+        set.status = 404;
+        return { error: 'User not found' };
+      }
+      return updated;
+    },
+    {
+      params: 'user.params',
+      body: 'user.update.company',
     }
   );

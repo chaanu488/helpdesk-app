@@ -57,6 +57,14 @@
                 class="text-neutral-300 hover:text-white hover:bg-neutral-800">
                 Categories
               </Button>
+              <Button variant="ghost" size="sm" href="/companies"
+                class="text-neutral-300 hover:text-white hover:bg-neutral-800">
+                Companies
+              </Button>
+              <Button variant="ghost" size="sm" href="/users"
+                class="text-neutral-300 hover:text-white hover:bg-neutral-800">
+                Users
+              </Button>
             {/if}
           </div>
         </div>

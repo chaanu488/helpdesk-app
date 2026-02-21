@@ -1,9 +1,17 @@
 import { Elysia } from 'elysia';
 import { db } from '../lib/db';
-import { tickets, ticketTags, linkedIssues } from '../lib/db/schema';
-import { eq, and, like, desc, count } from 'drizzle-orm';
+import { tickets, ticketTags, linkedIssues, users } from '../lib/db/schema';
+import { eq, and, like, desc, count, inArray } from 'drizzle-orm';
 import { authPlugin, requireAuth, requireRole } from '../auth';
 import { ticketsModel } from './model';
+
+async function getCompanyCustomerIds(companyId: string): Promise<string[]> {
+  const companyUsers = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.companyId, companyId));
+  return companyUsers.map((u) => u.id);
+}
 
 export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
   .use(ticketsModel)
@@ -43,9 +51,24 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
       const authed = requireAuth(user);
       const conditions = [];
 
-      // Customers only see their own tickets
+      // Customers see all tickets from their company (or just their own if no company)
       if (authed.role === 'customer') {
-        conditions.push(eq(tickets.customerId, authed.id));
+        const [currentUser] = await db
+          .select({ companyId: users.companyId })
+          .from(users)
+          .where(eq(users.id, authed.id))
+          .limit(1);
+
+        if (currentUser?.companyId) {
+          const companyCustomerIds = await getCompanyCustomerIds(currentUser.companyId);
+          if (companyCustomerIds.length > 0) {
+            conditions.push(inArray(tickets.customerId, companyCustomerIds));
+          } else {
+            conditions.push(eq(tickets.customerId, authed.id));
+          }
+        } else {
+          conditions.push(eq(tickets.customerId, authed.id));
+        }
       }
 
       if (query.status) {
@@ -105,10 +128,24 @@ export const ticketsRoutes = new Elysia({ prefix: '/tickets' })
         return { error: 'Ticket not found' };
       }
 
-      // Customers can only see their own tickets
-      if (authed.role === 'customer' && ticket.customerId !== authed.id) {
-        set.status = 403;
-        return { error: 'Forbidden' };
+      // Customers can see their own or company tickets
+      if (authed.role === 'customer') {
+        const [currentUser] = await db
+          .select({ companyId: users.companyId })
+          .from(users)
+          .where(eq(users.id, authed.id))
+          .limit(1);
+
+        if (currentUser?.companyId) {
+          const companyCustomerIds = await getCompanyCustomerIds(currentUser.companyId);
+          if (!companyCustomerIds.includes(ticket.customerId)) {
+            set.status = 403;
+            return { error: 'Forbidden' };
+          }
+        } else if (ticket.customerId !== authed.id) {
+          set.status = 403;
+          return { error: 'Forbidden' };
+        }
       }
 
       const tags = await db

@@ -11,4 +11,7 @@ export const usersModel = new Elysia({ name: 'users/model' }).model({
     avatarUrl: t.Optional(t.Union([t.String(), t.Null()])),
   }),
   'user.update.role': t.Object({ role: userRole }),
+  'user.update.company': t.Object({
+    companyId: t.Union([t.String(), t.Null()]),
+  }),
 });
