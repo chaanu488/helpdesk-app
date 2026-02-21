@@ -7,6 +7,14 @@ export const ticketStatusEnum = pgEnum('ticket_status', ['open', 'in_progress', 
 export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'high', 'urgent']);
 export const providerEnum = pgEnum('provider', ['github', 'bitbucket']);
 
+// Companies
+export const companies = pgTable('companies', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 // Users
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -15,6 +23,7 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   role: userRoleEnum('role').notNull().default('customer'),
   avatarUrl: text('avatar_url'),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -89,7 +98,12 @@ export const linkedIssues = pgTable('linked_issues', {
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const companiesRelations = relations(companies, ({ many }) => ({
+  users: many(users),
+}));
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  company: one(companies, { fields: [users.companyId], references: [companies.id] }),
   tickets: many(tickets, { relationName: 'customerTickets' }),
   assignedTickets: many(tickets, { relationName: 'agentTickets' }),
   messages: many(messages),

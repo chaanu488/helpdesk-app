@@ -2,6 +2,7 @@ import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { authRoutes } from './auth';
 import { categoriesRoutes } from './categories';
+import { companiesRoutes } from './companies';
 import { ticketsRoutes } from './tickets';
 import { messagesRoutes } from './messages';
 import { usersRoutes } from './users';
@@ -37,6 +38,7 @@ const devOpenapi = isDev
 const apiRoutes = new Elysia({ prefix: '/api' })
   .use(authRoutes)
   .use(categoriesRoutes)
+  .use(companiesRoutes)
   .use(ticketsRoutes)
   .use(messagesRoutes)
   .use(usersRoutes)
