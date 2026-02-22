@@ -1,0 +1,115 @@
+image: oven/bun:1-alpine
+
+definitions:
+  services:
+    postgres:
+      image: postgres:16-alpine
+      environment:
+        POSTGRES_USER: helpdesk
+        POSTGRES_PASSWORD: helpdesk
+        POSTGRES_DB: helpdesk
+    redis:
+      image: valkey/valkey:8-alpine
+
+  caches:
+    bun: ~/.bun
+
+  steps:
+    - step: &typecheck
+        name: Type Check
+        caches: [bun]
+        script:
+          - bun install
+          - bun run typecheck
+
+    - step: &test
+        name: Test
+        caches: [bun]
+        services: [postgres, redis]
+        script:
+          - bun install
+          - cd apps/backend && bunx drizzle-kit push
+          - bun test --filter backend
+        after-script:
+          - pipe: atlassian/junit-report-scanner:latest
+            variables:
+              REPORT_OUTPUT_PATH: "**/test-results/**/*.xml"
+
+    - step: &trivy-fs
+        name: "Security: Trivy (deps + secrets + IaC)"
+        image: aquasec/trivy:latest
+        script:
+          # Scan dependencies & secrets
+          - trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 .
+          # Scan Kubernetes manifests
+          - trivy config --severity HIGH,CRITICAL --exit-code 1 k8s/
+          # Scan Helm charts
+          - trivy config --severity HIGH,CRITICAL --exit-code 1 helm/
+
+    - step: &semgrep
+        name: "Security: Semgrep SAST"
+        image: semgrep/semgrep
+        script:
+          - semgrep --config=p/typescript --config=p/jwt --config=p/secrets --error .
+
+    - step: &build-backend
+        name: Build Backend Image
+        services: [docker]
+        script:
+          - docker build -f apps/backend/Dockerfile -t helpdesk-backend:$BITBUCKET_COMMIT .
+          # Scan built image
+          - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+            aquasec/trivy:latest image
+            --severity HIGH,CRITICAL --exit-code 1
+            helpdesk-backend:$BITBUCKET_COMMIT
+
+    - step: &build-frontend
+        name: Build Frontend Image
+        services: [docker]
+        script:
+          - docker build -f apps/frontend/Dockerfile -t helpdesk-frontend:$BITBUCKET_COMMIT .
+          - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+            aquasec/trivy:latest image
+            --severity HIGH,CRITICAL --exit-code 1
+            helpdesk-frontend:$BITBUCKET_COMMIT
+
+pipelines:
+  pull-requests:
+    "**":
+      - parallel:
+          - step: *typecheck
+          - step: *trivy-fs
+          - step: *semgrep
+      - step: *test
+
+  branches:
+    develop:
+      - parallel:
+          - step: *typecheck
+          - step: *trivy-fs
+          - step: *semgrep
+      - step: *test
+      - parallel:
+          - step: *build-backend
+          - step: *build-frontend
+
+    main:
+      - parallel:
+          - step: *typecheck
+          - step: *trivy-fs
+          - step: *semgrep
+      - step: *test
+      - parallel:
+          - step: *build-backend
+          - step: *build-frontend
+      # TODO: Add deploy step here
+      # - step:
+      #     name: Deploy to Production
+      #     deployment: production
+      #     script:
+      #       - kubectl apply -f k8s/
+
+  custom:
+    security-scan:
+      - step: *trivy-fs
+      - step: *semgrep
