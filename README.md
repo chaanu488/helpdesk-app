@@ -303,6 +303,349 @@ pm2 startup       # auto-start เมื่อ server reboot
 
 ---
 
+## Local Testing with ArgoCD + minikube
+
+ทดสอบ GitOps flow บน local ด้วย minikube โดยไม่ต้องใช้ production cluster
+
+### Prerequisites
+
+- [minikube](https://minikube.sigs.k8s.io) รันอยู่ (`minikube start`)
+- `kubectl` + `helm` ติดตั้งแล้ว
+- Docker images build ไว้แล้ว (`helpdesk-backend:local`, `helpdesk-frontend:local`)
+
+---
+
+### Step 1 — ติดตั้ง ArgoCD ใน minikube
+
+```sh
+kubectl create namespace argocd
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# รอจนพร้อม
+kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+
+# ดึง initial password
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d; echo
+
+# เปิด UI (รันค้างไว้ใน terminal แยก)
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# เปิด https://localhost:8080  username: admin
+```
+
+---
+
+### Step 2 — เชื่อม ArgoCD กับ Private Bitbucket repo (SSH)
+
+```sh
+# สร้าง SSH key คู่ใหม่สำหรับ ArgoCD
+ssh-keygen -t ed25519 -C "argocd-helpdesk" -f ~/.ssh/argocd_helpdesk -N ""
+
+# เอา public key ไปเพิ่มที่ Bitbucket
+# Repository Settings → Access keys → Add key (Permission: Read)
+cat ~/.ssh/argocd_helpdesk.pub
+
+# Register private key กับ ArgoCD
+kubectl create secret generic argocd-bitbucket-ssh \
+  --from-file=sshPrivateKey=$HOME/.ssh/argocd_helpdesk \
+  -n argocd
+
+kubectl patch secret argocd-bitbucket-ssh -n argocd \
+  --type=merge \
+  -p '{"metadata":{"labels":{"argocd.argoproj.io/secret-type":"repository"}},"stringData":{"type":"git","url":"git@bitbucket.org:tntoffice/helpdesk.git","insecureIgnoreHostKey":"true"}}'
+```
+
+---
+
+### Step 3 — สร้าง values-local.yaml
+
+สร้างไฟล์ `helm/helpdesk/values-local.yaml` สำหรับ local โดยเฉพาะ:
+
+```yaml
+backend:
+  image: helpdesk-backend
+  tag: local
+  pullPolicy: Never
+  replicas: 1
+
+frontend:
+  image: helpdesk-frontend
+  tag: local
+  pullPolicy: Never
+
+ingress:
+  host: helpdesk.local
+  tlsSecret: helpdesk-tls
+
+externalSecret:
+  enabled: false   # ปิด ESO เพราะ minikube ไม่มี
+```
+
+แก้ `argocd/application.yaml` ให้ใช้ `values-local.yaml` แทน `values-prod.yaml`:
+
+```yaml
+helm:
+  valueFiles:
+    - values.yaml
+    - values-local.yaml
+```
+
+---
+
+### Step 4 — Deploy
+
+```sh
+git add helm/helpdesk/values-local.yaml argocd/application.yaml
+git commit -m "add values-local.yaml for ArgoCD local testing"
+git push origin <branch>
+
+kubectl apply -f argocd/application.yaml
+```
+
+ArgoCD จะ auto-sync ภายใน 3 นาที หรือกด **Refresh** ใน UI
+
+---
+
+### Step 5 — เปิดแอป
+
+```sh
+# เพิ่ม hosts entry (ทำครั้งเดียว)
+echo "$(kubectl get ingress helpdesk -n helpdesk -o jsonpath='{.status.loadBalancer.ingress[0].ip}') helpdesk.local" \
+  | sudo tee -a /etc/hosts
+
+# รัน tunnel ค้างไว้ใน terminal แยก
+minikube tunnel
+```
+
+เปิด `https://helpdesk.local`
+
+---
+
+### สิ่งที่ต้องรันค้างไว้ทุกครั้ง
+
+| Terminal | คำสั่ง |
+|---|---|
+| ArgoCD UI | `kubectl port-forward svc/argocd-server -n argocd 8080:443` |
+| Ingress | `minikube tunnel` |
+
+---
+
+### ปัญหาที่พบและวิธีแก้
+
+| ปัญหา | สาเหตุ | วิธีแก้ |
+|---|---|---|
+| `unable to resolve branch to commit SHA` | Branch ยังไม่ได้ push ขึ้น remote | `git push origin <branch>` |
+| `ExternalSecret CRD is not installed` | `values-prod.yaml` ตั้ง `externalSecret.enabled: true` ทับ | สร้าง `values-local.yaml` ที่ตั้งค่า `enabled: false` |
+| `helm uninstall` ลบ resources ด้วย | `--keep-history` เก็บแค่ Helm history ไม่ได้เก็บ K8s resources | รอ ArgoCD auto-sync หรือกด Sync ใน UI |
+| เข้าเว็บไม่ได้หลัง sync สำเร็จ | `minikube tunnel` ไม่ได้รัน หรือ `/etc/hosts` ไม่มี entry | รัน tunnel + เพิ่ม hosts entry |
+
+---
+
+### หมายเหตุ: ArgoCD vs Helm release
+
+ArgoCD render Helm chart แล้ว apply ผ่าน Server-Side Apply **โดยไม่สร้าง/อัปเดต Helm release**
+ดังนั้น `helm list` จะยังแสดง release เดิม — ให้ใช้ `kubectl get application -n argocd` ดู state จริงแทน
+
+ถ้าต้องการให้ ArgoCD เป็น owner เดียว ให้ uninstall Helm release ก่อน แล้วปล่อยให้ ArgoCD sync ใหม่:
+
+```sh
+helm uninstall helpdesk -n helpdesk
+# ArgoCD จะ recreate resources อัตโนมัติ
+```
+
+---
+
+## Production (ArgoCD + Helm)
+
+GitOps deployment ด้วย ArgoCD — cluster sync กับ Git โดยอัตโนมัติ
+
+### Architecture overview
+
+```
+Git repo (helm/helpdesk/)
+       │  push
+       ▼
+   ArgoCD  ──watch──▶  Helm chart  ──apply──▶  K8s cluster (helpdesk ns)
+                                                    │
+                         External Secrets Operator ◀╯
+                                 │
+                          AWS SM / Vault
+                         (DATABASE_URL, JWT_SECRET, …)
+```
+
+### Prerequisites
+
+- Kubernetes cluster (EKS / GKE / k3s / etc.)
+- `kubectl` + `helm` ตั้งค่า context ชี้ไปที่ cluster แล้ว
+- Container registry (GHCR / ECR / Docker Hub) สำหรับ image backend + frontend
+
+---
+
+### Step 1 — ติดตั้ง ArgoCD ใน cluster
+
+```sh
+kubectl create namespace argocd
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# รอจนทุก pod พร้อม
+kubectl wait --for=condition=available deployment -n argocd --all --timeout=120s
+```
+
+เข้า UI ผ่าน port-forward (หรือ Ingress ถ้ามี):
+
+```sh
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# เปิด https://localhost:8080
+# username: admin
+# password: ดูจาก secret ด้านล่าง
+kubectl get secret argocd-initial-admin-secret -n argocd \
+  -o jsonpath="{.data.password}" | base64 -d && echo
+```
+
+---
+
+### Step 2 — ติดตั้ง External Secrets Operator (ESO)
+
+ESO ทำหน้าที่ดึง secret จาก AWS Secrets Manager / Vault แล้วสร้างเป็น K8s Secret ให้อัตโนมัติ
+
+```sh
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace
+```
+
+---
+
+### Step 3 — สร้าง secrets ใน provider
+
+**AWS Secrets Manager:**
+
+```sh
+aws secretsmanager create-secret \
+  --name "prod/helpdesk" \
+  --secret-string '{
+    "DATABASE_URL": "postgres://user:pass@host:5432/helpdesk",
+    "REDIS_URL":    "redis://redis:6379",
+    "JWT_SECRET":   "your-strong-secret-here"
+  }'
+```
+
+**HashiCorp Vault:**
+
+```sh
+vault kv put secret/prod/helpdesk \
+  DATABASE_URL="postgres://user:pass@host:5432/helpdesk" \
+  REDIS_URL="redis://redis:6379" \
+  JWT_SECRET="your-strong-secret-here"
+```
+
+---
+
+### Step 4 — apply ClusterSecretStore
+
+เลือก provider ที่ใช้ (ไฟล์อยู่ใน `argocd/`):
+
+```sh
+# AWS Secrets Manager
+kubectl apply -f argocd/cluster-secret-store-aws.yaml
+
+# หรือ HashiCorp Vault
+kubectl apply -f argocd/cluster-secret-store-vault.yaml
+```
+
+> ก่อน apply ให้แก้ `region` (AWS) หรือ `server` (Vault) ในไฟล์ให้ถูกต้องก่อน
+
+---
+
+### Step 5 — แก้ค่าให้ตรงกับ environment จริง
+
+**`argocd/application.yaml`** — แก้ `repoURL`:
+
+```yaml
+source:
+  repoURL: https://github.com/YOUR_ORG/helpdesk-app.git  # ← เปลี่ยนตรงนี้
+  targetRevision: main
+  path: helm/helpdesk
+```
+
+**`helm/helpdesk/values-prod.yaml`** — แก้ image registry + domain:
+
+```yaml
+backend:
+  image: ghcr.io/YOUR_ORG/helpdesk-backend   # ← เปลี่ยนตรงนี้
+frontend:
+  image: ghcr.io/YOUR_ORG/helpdesk-frontend  # ← เปลี่ยนตรงนี้
+
+ingress:
+  host: helpdesk.yourdomain.com              # ← เปลี่ยนตรงนี้
+```
+
+Commit + push ทั้งสองไฟล์
+
+---
+
+### Step 6 — deploy ArgoCD Application
+
+```sh
+kubectl apply -f argocd/application.yaml
+```
+
+ArgoCD จะ sync Helm chart ไปยัง cluster ภายในไม่กี่วินาที ตรวจสอบสถานะ:
+
+```sh
+# ผ่าน CLI
+kubectl get application -n argocd helpdesk
+
+# หรือผ่าน ArgoCD CLI
+argocd app get helpdesk
+argocd app sync helpdesk   # force sync ทันที
+```
+
+---
+
+### Step 7 — CI/CD pipeline (อัปเดต image tag)
+
+ทุกครั้งที่ push code ให้ CI build image แล้วอัปเดต tag ใน Git:
+
+```sh
+GIT_SHA=$(git rev-parse --short HEAD)
+
+# Build + push images
+docker build -f apps/backend/Dockerfile  -t ghcr.io/YOUR_ORG/helpdesk-backend:$GIT_SHA  .
+docker build -f apps/frontend/Dockerfile -t ghcr.io/YOUR_ORG/helpdesk-frontend:$GIT_SHA .
+docker push ghcr.io/YOUR_ORG/helpdesk-backend:$GIT_SHA
+docker push ghcr.io/YOUR_ORG/helpdesk-frontend:$GIT_SHA
+
+# อัปเดต tag ใน values-prod.yaml แล้ว commit กลับ
+# ArgoCD จะ detect การเปลี่ยนแปลงและ sync อัตโนมัติ
+```
+
+หรือใช้ `argocd app set` โดยไม่ต้องแก้ไฟล์:
+
+```sh
+argocd app set helpdesk \
+  -p backend.tag=$GIT_SHA \
+  -p frontend.tag=$GIT_SHA
+```
+
+---
+
+### ไฟล์ที่เกี่ยวข้อง
+
+| ไฟล์ | หน้าที่ |
+|------|---------|
+| `argocd/application.yaml` | ArgoCD Application manifest — ชี้ repo + Helm chart |
+| `argocd/cluster-secret-store-aws.yaml` | ClusterSecretStore สำหรับ AWS Secrets Manager |
+| `argocd/cluster-secret-store-vault.yaml` | ClusterSecretStore สำหรับ HashiCorp Vault |
+| `helm/helpdesk/` | Helm chart (templates + values) |
+| `helm/helpdesk/values.yaml` | ค่า default (dev/local) |
+| `helm/helpdesk/values-prod.yaml` | ค่า override สำหรับ production |
+
+---
+
 ## CI (simulate locally)
 
 ```sh
