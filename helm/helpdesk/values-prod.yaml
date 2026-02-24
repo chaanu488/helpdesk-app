@@ -1,0 +1,83 @@
+# values-prod.yaml — Production overrides
+# ไฟล์นี้ commit ได้ — ไม่มี secret ใดๆ ทั้งสิ้น
+# ArgoCD จะโหลด values.yaml + values-prod.yaml ซ้อนกัน
+#
+# วิธีใช้ manual:
+#   helm upgrade --install helpdesk ./helm/helpdesk \
+#     -f helm/helpdesk/values.yaml \
+#     -f helm/helpdesk/values-prod.yaml
+
+namespace: helpdesk
+
+backend:
+  image: ghcr.io/YOUR_ORG/helpdesk-backend
+  tag: "latest"        # CI จะ override ด้วย --set backend.tag=$GIT_SHA
+  pullPolicy: Always
+  replicas: 2
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUPercent: 70
+
+frontend:
+  image: ghcr.io/YOUR_ORG/helpdesk-frontend
+  tag: "latest"        # CI จะ override ด้วย --set frontend.tag=$GIT_SHA
+  pullPolicy: Always
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+postgres:
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+redis:
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+ingress:
+  host: helpdesk.yourdomain.com    # เปลี่ยนเป็น domain จริง
+  tlsSecret: helpdesk-tls-prod
+
+# --- Secret Management (Production) ---
+# เปิด externalSecret แทน hardcode secrets ใน values
+# ไม่ต้องกรอก secrets.databaseUrl / jwtSecret ที่นี่
+externalSecret:
+  enabled: true
+  refreshInterval: "1h"
+  secretStoreName: "cluster-secret-store"   # ชื่อ ClusterSecretStore ที่สร้างไว้ใน cluster
+  secretStoreKind: "ClusterSecretStore"
+  remoteRefs:
+    databaseUrl:
+      key: "prod/helpdesk"
+      property: "DATABASE_URL"
+    redisUrl:
+      key: "prod/helpdesk"
+      property: "REDIS_URL"
+    jwtSecret:
+      key: "prod/helpdesk"
+      property: "JWT_SECRET"

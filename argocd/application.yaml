@@ -1,0 +1,57 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: helpdesk
+  namespace: argocd
+  # finalizer ป้องกัน ArgoCD ลบ resource ใน cluster เมื่อลบ Application ออก
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: helpdesk
+    env: production
+spec:
+  project: default
+
+  source:
+    # --- เปลี่ยน repoURL เป็น repo จริงของคุณ ---
+    repoURL: https://github.com/YOUR_ORG/helpdesk-app.git
+    targetRevision: main          # branch/tag ที่ ArgoCD จะ track
+    path: helm/helpdesk           # path ของ Helm chart ใน repo
+
+    helm:
+      # โหลด values-prod.yaml ซ้อนทับ values.yaml
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+      # CI override image tag ด้วย ArgoCD image-updater หรือ --set ใน pipeline
+      # parameters:
+      #   - name: backend.tag
+      #     value: "abc1234"
+      #   - name: frontend.tag
+      #     value: "abc1234"
+
+  destination:
+    server: https://kubernetes.default.svc   # in-cluster ArgoCD
+    namespace: helpdesk
+
+  syncPolicy:
+    automated:
+      prune: true       # ลบ resource ที่ไม่อยู่ใน Git แล้ว
+      selfHeal: true    # sync กลับอัตโนมัติถ้ามีคนแก้ตรงใน cluster
+    syncOptions:
+      - CreateNamespace=true              # สร้าง namespace ถ้ายังไม่มี
+      - PrunePropagationPolicy=foreground # รอให้ลบเสร็จก่อน sync ต่อ
+      - ServerSideApply=true             # ใช้ server-side apply (แนะนำสำหรับ CRD)
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  # ไม่ให้ ArgoCD ตาม status ของ ExternalSecret (ESO จัดการเอง)
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status

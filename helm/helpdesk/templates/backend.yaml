@@ -35,6 +35,11 @@ spec:
                 secretKeyRef:
                   name: helpdesk-secrets
                   key: redis-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: helpdesk-secrets
+                  key: jwt-secret
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
           livenessProbe:

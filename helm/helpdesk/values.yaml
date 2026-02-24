@@ -59,7 +59,29 @@ ingress:
   host: helpdesk.local
   tlsSecret: helpdesk-tls
 
-# Secrets — ใน production ใช้ external-secrets หรือ vault แทน hardcode
+# Secrets — ใน production ตั้ง externalSecret.enabled: true แทน
+# อย่าใส่ค่า secret จริงใน Git โดยตรง
 secrets:
   databaseUrl: "postgres://helpdesk:helpdesk@postgres:5432/helpdesk"
   redisUrl: "redis://redis:6379"
+  jwtSecret: "change-this-in-production"
+
+# External Secrets Operator — ใช้ใน production เพื่อดึง secret จาก AWS SM / Vault / GCP SM
+# doc: https://external-secrets.io
+externalSecret:
+  enabled: false
+  refreshInterval: "1h"
+  # ชื่อ ClusterSecretStore ที่ติดตั้งไว้ใน cluster
+  secretStoreName: "cluster-secret-store"
+  secretStoreKind: "ClusterSecretStore"
+  # path และ key ใน secret store (ปรับตาม provider)
+  remoteRefs:
+    databaseUrl:
+      key: "prod/helpdesk"
+      property: "DATABASE_URL"
+    redisUrl:
+      key: "prod/helpdesk"
+      property: "REDIS_URL"
+    jwtSecret:
+      key: "prod/helpdesk"
+      property: "JWT_SECRET"
