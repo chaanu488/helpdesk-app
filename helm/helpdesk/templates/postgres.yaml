@@ -38,7 +38,10 @@ spec:
             - name: POSTGRES_USER
               value: helpdesk
             - name: POSTGRES_PASSWORD
-              value: helpdesk
+              valueFrom:
+                secretKeyRef:
+                  name: helpdesk-secrets
+                  key: postgres-password
             - name: POSTGRES_DB
               value: helpdesk
           resources:

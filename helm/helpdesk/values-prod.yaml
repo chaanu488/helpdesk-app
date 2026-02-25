@@ -81,3 +81,6 @@ externalSecret:
     jwtSecret:
       key: "prod/helpdesk"
       property: "JWT_SECRET"
+    postgresPassword:
+      key: "prod/helpdesk"
+      property: "POSTGRES_PASSWORD"
