@@ -13,7 +13,7 @@ export type User = {
   id: string;
   email: string;
   name: string;
-  role: 'customer' | 'agent' | 'developer' | 'admin';
+  role: 'customer' | 'product_owner' | 'agent' | 'developer' | 'admin';
   avatarUrl?: string | null;
   createdAt?: string;
 };

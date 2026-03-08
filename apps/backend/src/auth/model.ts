@@ -6,7 +6,7 @@ export const authModel = new Elysia({ name: 'auth/model' }).model({
     password: t.String({ minLength: 6 }),
     name: t.String({ minLength: 1 }),
     role: t.Optional(t.Union([
-      t.Literal('customer'), t.Literal('agent'), t.Literal('developer'), t.Literal('admin'),
+      t.Literal('customer'), t.Literal('product_owner'), t.Literal('agent'), t.Literal('developer'), t.Literal('admin'),
     ])),
   }),
   'auth.login': t.Object({
@@ -14,4 +14,11 @@ export const authModel = new Elysia({ name: 'auth/model' }).model({
     password: t.String(),
   }),
   'auth.kick.params': t.Object({ sessionToken: t.String() }),
+  'auth.forgot-password': t.Object({
+    email: t.String({ format: 'email' }),
+  }),
+  'auth.reset-password': t.Object({
+    token: t.String(),
+    password: t.String({ minLength: 6 }),
+  }),
 });

@@ -1,8 +1,8 @@
-import { pgTable, uuid, text, timestamp, boolean, pgEnum, integer, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, boolean, pgEnum, integer, primaryKey, jsonb } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Enums
-export const userRoleEnum = pgEnum('user_role', ['customer', 'agent', 'developer', 'admin']);
+export const userRoleEnum = pgEnum('user_role', ['customer', 'product_owner', 'agent', 'developer', 'admin']);
 export const ticketStatusEnum = pgEnum('ticket_status', ['open', 'in_progress', 'waiting', 'resolved', 'closed']);
 export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'high', 'urgent']);
 export const providerEnum = pgEnum('provider', ['github', 'bitbucket']);
@@ -11,6 +11,9 @@ export const providerEnum = pgEnum('provider', ['github', 'bitbucket']);
 export const companies = pgTable('companies', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull().unique(),
+  logoUrl: text('logo_url'),
+  settings: jsonb('settings'),
+  domains: text('domains').array(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -24,6 +27,8 @@ export const users = pgTable('users', {
   role: userRoleEnum('role').notNull().default('customer'),
   avatarUrl: text('avatar_url'),
   companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+  deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -47,6 +52,10 @@ export const tickets = pgTable('tickets', {
   customerId: uuid('customer_id').notNull().references(() => users.id),
   assignedAgentId: uuid('assigned_agent_id').references(() => users.id),
   categoryId: uuid('category_id').references(() => categories.id),
+  ccEmails: text('cc_emails').array(),
+  slaDeadline: timestamp('sla_deadline', { withTimezone: true }),
+  firstResponseAt: timestamp('first_response_at', { withTimezone: true }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -68,6 +77,69 @@ export const messages = pgTable('messages', {
   isInternal: boolean('is_internal').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Attachments
+export const attachments = pgTable('attachments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ticketId: uuid('ticket_id').notNull().references(() => tickets.id, { onDelete: 'cascade' }),
+  messageId: uuid('message_id').references(() => messages.id, { onDelete: 'set null' }),
+  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id),
+  fileName: text('file_name').notNull(),
+  fileSize: integer('file_size').notNull(),
+  mimeType: text('mime_type').notNull(),
+  storageKey: text('storage_key').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Notifications
+export const notifications = pgTable('notifications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  entityType: text('entity_type'),
+  entityId: text('entity_id'),
+  isRead: boolean('is_read').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Invitations
+export const invitations = pgTable('invitations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: text('email').notNull(),
+  role: userRoleEnum('role').notNull().default('customer'),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+  invitedBy: uuid('invited_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token: text('token').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Password Reset Tokens
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token: text('token').notNull().unique(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Audit Logs
+export const auditLogs = pgTable('audit_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  actorName: text('actor_name').notNull(),
+  action: text('action').notNull(),
+  entityType: text('entity_type').notNull(),
+  entityId: text('entity_id').notNull(),
+  oldValue: jsonb('old_value'),
+  newValue: jsonb('new_value'),
+  ipAddress: text('ip_address'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 // Integrations
@@ -100,6 +172,7 @@ export const linkedIssues = pgTable('linked_issues', {
 // Relations
 export const companiesRelations = relations(companies, ({ many }) => ({
   users: many(users),
+  invitations: many(invitations),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -107,6 +180,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   tickets: many(tickets, { relationName: 'customerTickets' }),
   assignedTickets: many(tickets, { relationName: 'agentTickets' }),
   messages: many(messages),
+  notifications: many(notifications),
+  attachments: many(attachments),
 }));
 
 export const ticketsRelations = relations(tickets, ({ one, many }) => ({
@@ -116,19 +191,44 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   tags: many(ticketTags),
   messages: many(messages),
   linkedIssues: many(linkedIssues),
+  attachments: many(attachments),
 }));
 
 export const ticketTagsRelations = relations(ticketTags, ({ one }) => ({
   ticket: one(tickets, { fields: [ticketTags.ticketId], references: [tickets.id] }),
 }));
 
-export const messagesRelations = relations(messages, ({ one }) => ({
+export const messagesRelations = relations(messages, ({ one, many }) => ({
   ticket: one(tickets, { fields: [messages.ticketId], references: [tickets.id] }),
   author: one(users, { fields: [messages.authorId], references: [users.id] }),
+  attachments: many(attachments),
 }));
 
 export const categoriesRelations = relations(categories, ({ many }) => ({
   tickets: many(tickets),
+}));
+
+export const attachmentsRelations = relations(attachments, ({ one }) => ({
+  ticket: one(tickets, { fields: [attachments.ticketId], references: [tickets.id] }),
+  message: one(messages, { fields: [attachments.messageId], references: [messages.id] }),
+  uploadedByUser: one(users, { fields: [attachments.uploadedBy], references: [users.id] }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, { fields: [notifications.userId], references: [users.id] }),
+}));
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  invitedByUser: one(users, { fields: [invitations.invitedBy], references: [users.id] }),
+  company: one(companies, { fields: [invitations.companyId], references: [companies.id] }),
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, { fields: [passwordResetTokens.userId], references: [users.id] }),
+}));
+
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  actor: one(users, { fields: [auditLogs.actorId], references: [users.id] }),
 }));
 
 export const integrationsRelations = relations(integrations, ({ one, many }) => ({

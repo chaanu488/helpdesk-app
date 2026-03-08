@@ -11,7 +11,7 @@ namespace: helpdesk
 
 backend:
   image: ghcr.io/YOUR_ORG/helpdesk-backend
-  tag: "latest"        # CI จะ override ด้วย --set backend.tag=$GIT_SHA
+  tag: "backend-latest"  # CI จะ update เป็น backend-{SHORT_SHA}
   pullPolicy: Always
   replicas: 2
   resources:
@@ -29,7 +29,7 @@ backend:
 
 frontend:
   image: ghcr.io/YOUR_ORG/helpdesk-frontend
-  tag: "latest"        # CI จะ override ด้วย --set frontend.tag=$GIT_SHA
+  tag: "frontend-latest" # CI จะ update เป็น frontend-{SHORT_SHA}
   pullPolicy: Always
   resources:
     requests:
