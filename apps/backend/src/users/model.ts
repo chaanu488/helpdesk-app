@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 
 const userRole = t.Union([
-  t.Literal('customer'), t.Literal('agent'), t.Literal('developer'), t.Literal('admin'),
+  t.Literal('customer'), t.Literal('product_owner'), t.Literal('agent'), t.Literal('developer'), t.Literal('admin'),
 ]);
 
 export const usersModel = new Elysia({ name: 'users/model' }).model({

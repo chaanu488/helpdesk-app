@@ -9,7 +9,7 @@ import { usersRoutes } from '../src/users';
 import { integrationsRoutes } from '../src/integrations';
 import { linkedIssuesRoutes } from '../src/linked-issues';
 import { db } from '../src/lib/db';
-import { users, categories, tickets, messages, ticketTags, integrations, linkedIssues } from '../src/lib/db/schema';
+import { users, categories, tickets, messages, ticketTags, integrations, linkedIssues, attachments, notifications, invitations, passwordResetTokens, auditLogs } from '../src/lib/db/schema';
 import { sql } from 'drizzle-orm';
 
 const apiRoutes = new Elysia({ prefix: '/api' })
@@ -64,6 +64,11 @@ let ticketId: string;
 
 beforeAll(async () => {
   // Clean tables in dependency order
+  await db.delete(auditLogs);
+  await db.delete(notifications);
+  await db.delete(attachments);
+  await db.delete(passwordResetTokens);
+  await db.delete(invitations);
   await db.delete(linkedIssues);
   await db.delete(integrations);
   await db.delete(messages);
@@ -74,6 +79,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(auditLogs);
+  await db.delete(notifications);
+  await db.delete(attachments);
+  await db.delete(passwordResetTokens);
+  await db.delete(invitations);
   await db.delete(linkedIssues);
   await db.delete(integrations);
   await db.delete(messages);

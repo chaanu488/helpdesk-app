@@ -9,6 +9,12 @@ vi.mock('$lib/api', () => ({
 		tickets: { post: vi.fn() },
 	},
 }));
+vi.mock('$lib/components/RichTextEditor.svelte', () =>
+	import('$lib/components/__mocks__/RichTextEditor.svelte')
+);
+vi.mock('$lib/components/FileUpload.svelte', () =>
+	import('$lib/components/__mocks__/FileUpload.svelte')
+);
 
 import { goto } from '$app/navigation';
 import { api } from '$lib/api';
@@ -24,12 +30,16 @@ describe('New Ticket page', () => {
 		mockApi.categories.get.mockResolvedValue({ data: [], error: null });
 	});
 
-	test('renders title, description, priority and tags fields', async () => {
+	test('renders title, priority and tags fields', async () => {
 		render(NewTicketPage);
 		expect(screen.getByLabelText(/title/i)).toBeInTheDocument();
-		expect(screen.getByLabelText(/description/i)).toBeInTheDocument();
 		expect(screen.getByLabelText(/priority/i)).toBeInTheDocument();
 		expect(screen.getByLabelText(/tags/i)).toBeInTheDocument();
+	});
+
+	test('renders rich text editor for description', () => {
+		render(NewTicketPage);
+		expect(screen.getByRole('textbox', { name: /rich-text-editor/i })).toBeInTheDocument();
 	});
 
 	test('renders create ticket button', () => {
@@ -59,14 +69,14 @@ describe('New Ticket page', () => {
 		});
 	});
 
-	test('submits ticket with form values and redirects on success', async () => {
+	test('submits ticket with form values and navigates to ticket page', async () => {
 		const user = userEvent.setup();
 		mockApi.tickets.post.mockResolvedValue({ data: { id: 'ticket-123' }, error: null });
 
 		render(NewTicketPage);
 
 		await user.type(screen.getByLabelText(/title/i), 'Something is broken');
-		await user.type(screen.getByLabelText(/description/i), 'It stopped working after the update');
+		await user.type(screen.getByRole('textbox', { name: /rich-text-editor/i }), 'It stopped working after the update');
 		await user.click(screen.getByRole('button', { name: /create ticket/i }));
 
 		await waitFor(() => {
@@ -87,7 +97,7 @@ describe('New Ticket page', () => {
 		render(NewTicketPage);
 
 		await user.type(screen.getByLabelText(/title/i), 'Tagged ticket');
-		await user.type(screen.getByLabelText(/description/i), 'With tags');
+		await user.type(screen.getByRole('textbox', { name: /rich-text-editor/i }), 'With tags');
 		await user.type(screen.getByLabelText(/tags/i), 'bug, ui, api');
 		await user.click(screen.getByRole('button', { name: /create ticket/i }));
 
@@ -108,7 +118,7 @@ describe('New Ticket page', () => {
 		render(NewTicketPage);
 
 		await user.type(screen.getByLabelText(/title/i), 'Bad ticket');
-		await user.type(screen.getByLabelText(/description/i), 'Will fail');
+		await user.type(screen.getByRole('textbox', { name: /rich-text-editor/i }), 'Will fail');
 		await user.click(screen.getByRole('button', { name: /create ticket/i }));
 
 		await waitFor(() => {
@@ -126,7 +136,8 @@ describe('New Ticket page', () => {
 		render(NewTicketPage);
 
 		await user.type(screen.getByLabelText(/title/i), 'Test');
-		await user.type(screen.getByLabelText(/description/i), 'Desc');
+		await user.type(screen.getByRole('textbox', { name: /rich-text-editor/i }), 'Desc');
+		// Don't await — we want to observe the in-flight state
 		user.click(screen.getByRole('button', { name: /create ticket/i }));
 
 		await waitFor(() => {

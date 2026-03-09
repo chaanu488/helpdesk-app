@@ -4,10 +4,14 @@
   import { api } from '$lib/api';
   import { userState } from '$lib/stores/user.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
   import { Badge } from '$lib/components/ui/badge';
   import * as Card from '$lib/components/ui/card';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Select from '$lib/components/ui/select';
+
+  const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3300';
 
   type UserRow = {
     id: string;
@@ -20,11 +24,14 @@
   };
 
   type Company = { id: string; name: string };
+  type Invitation = { id: string; email: string; role: string; expiresAt: string; createdAt: string };
 
   let users = $state<UserRow[]>([]);
   let companies = $state<Company[]>([]);
+  let invitations = $state<Invitation[]>([]);
   let loading = $state(true);
 
+  // Edit user dialog
   let dialogOpen = $state(false);
   let selectedUser = $state<UserRow | null>(null);
   let selectedRole = $state('');
@@ -32,10 +39,20 @@
   let saving = $state(false);
   let error = $state('');
 
+  // Invite dialog
+  let inviteOpen = $state(false);
+  let inviteEmail = $state('');
+  let inviteRole = $state('customer');
+  let inviteCompanyId = $state('');
+  let inviting = $state(false);
+  let inviteError = $state('');
+  let inviteSuccess = $state('');
+
   const isAdmin = $derived(userState.user?.role === 'admin');
 
   const roleOptions = [
     { value: 'customer', label: 'Customer' },
+    { value: 'product_owner', label: 'Product Owner' },
     { value: 'agent', label: 'Agent' },
     { value: 'developer', label: 'Developer' },
     { value: 'admin', label: 'Admin' },
@@ -45,6 +62,7 @@
     admin: 'destructive',
     agent: 'default',
     developer: 'secondary',
+    product_owner: 'default',
     customer: 'outline',
   };
 
@@ -53,7 +71,7 @@
       goto('/');
       return;
     }
-    await Promise.all([fetchUsers(), fetchCompanies()]);
+    await Promise.all([fetchUsers(), fetchCompanies(), fetchInvitations()]);
   });
 
   async function fetchUsers() {
@@ -69,6 +87,13 @@
     try {
       const res = await api.companies.get();
       companies = (res.data as any) ?? [];
+    } catch {}
+  }
+
+  async function fetchInvitations() {
+    try {
+      const res = await fetch(`${API_URL}/api/invitations`, { credentials: 'include' });
+      if (res.ok) invitations = await res.json();
     } catch {}
   }
 
@@ -109,6 +134,45 @@
     }
   }
 
+  async function sendInvite() {
+    inviting = true;
+    inviteError = '';
+    inviteSuccess = '';
+    try {
+      const body: any = { email: inviteEmail, role: inviteRole };
+      if (inviteCompanyId) body.companyId = inviteCompanyId;
+
+      const res = await fetch(`${API_URL}/api/invitations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send invitation');
+
+      inviteSuccess = `Invitation sent to ${inviteEmail}`;
+      inviteEmail = '';
+      inviteRole = 'customer';
+      inviteCompanyId = '';
+      await fetchInvitations();
+    } catch (err) {
+      inviteError = err instanceof Error ? err.message : 'Failed to send invitation';
+    } finally {
+      inviting = false;
+    }
+  }
+
+  async function revokeInvitation(id: string) {
+    try {
+      await fetch(`${API_URL}/api/invitations/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      invitations = invitations.filter((i) => i.id !== id);
+    } catch {}
+  }
+
   function getCompanyName(companyId: string | null) {
     if (!companyId) return '—';
     return companies.find((c) => c.id === companyId)?.name ?? '—';
@@ -122,11 +186,14 @@
 {#if !isAdmin}
   <div class="text-muted-foreground py-8 text-center">Access denied. Admin only.</div>
 {:else}
-  <div class="space-y-4">
+  <div class="space-y-6">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold">User Management</h1>
       <div class="flex gap-2">
         <Button variant="outline" href="/companies">Manage Companies</Button>
+        <Button onclick={() => { inviteOpen = true; inviteError = ''; inviteSuccess = ''; }}>
+          Invite User
+        </Button>
       </div>
     </div>
 
@@ -170,8 +237,51 @@
         </table>
       </div>
     {/if}
+
+    <!-- Pending Invitations -->
+    {#if invitations.length > 0}
+      <div>
+        <h2 class="text-lg font-medium mb-3">Pending Invitations</h2>
+        <div class="border rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-muted/50 border-b">
+              <tr>
+                <th class="text-left px-4 py-3 font-medium">Email</th>
+                <th class="text-left px-4 py-3 font-medium">Role</th>
+                <th class="text-left px-4 py-3 font-medium">Expires</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              {#each invitations as inv}
+                <tr class="hover:bg-muted/30 transition-colors">
+                  <td class="px-4 py-3">{inv.email}</td>
+                  <td class="px-4 py-3">
+                    <Badge variant="outline" class="capitalize">{inv.role}</Badge>
+                  </td>
+                  <td class="px-4 py-3 text-muted-foreground text-xs">
+                    {new Date(inv.expiresAt).toLocaleDateString()}
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="text-destructive hover:text-destructive"
+                      onclick={() => revokeInvitation(inv.id)}
+                    >
+                      Revoke
+                    </Button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {/if}
   </div>
 
+  <!-- Edit User Dialog -->
   <Dialog.Root bind:open={dialogOpen}>
     <Dialog.Content class="sm:max-w-md">
       <Dialog.Header>
@@ -220,6 +330,76 @@
         <Button variant="outline" onclick={() => dialogOpen = false}>Cancel</Button>
         <Button onclick={handleSave} disabled={saving}>
           {saving ? 'Saving...' : 'Save changes'}
+        </Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
+
+  <!-- Invite User Dialog -->
+  <Dialog.Root bind:open={inviteOpen}>
+    <Dialog.Content class="sm:max-w-md">
+      <Dialog.Header>
+        <Dialog.Title>Invite User</Dialog.Title>
+        <Dialog.Description>Send an invitation email to a new user.</Dialog.Description>
+      </Dialog.Header>
+
+      {#if inviteError}
+        <div class="bg-destructive/10 text-destructive text-sm px-3 py-2 rounded-md">
+          {inviteError}
+        </div>
+      {/if}
+      {#if inviteSuccess}
+        <div class="bg-green-50 text-green-700 text-sm px-3 py-2 rounded-md">
+          {inviteSuccess}
+        </div>
+      {/if}
+
+      <div class="space-y-4 py-4">
+        <div class="space-y-2">
+          <Label for="invite-email">Email address</Label>
+          <Input
+            id="invite-email"
+            type="email"
+            bind:value={inviteEmail}
+            placeholder="user@example.com"
+            disabled={inviting}
+          />
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium" for="invite-role">Role</label>
+          <Select.Root type="single" bind:value={inviteRole}>
+            <Select.Trigger id="invite-role" class="w-full" disabled={inviting}>
+              {roleOptions.find(r => r.value === inviteRole)?.label ?? 'Customer'}
+            </Select.Trigger>
+            <Select.Content>
+              {#each roleOptions as option}
+                <Select.Item value={option.value}>{option.label}</Select.Item>
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium" for="invite-company">Company (optional)</label>
+          <Select.Root type="single" bind:value={inviteCompanyId}>
+            <Select.Trigger id="invite-company" class="w-full" disabled={inviting}>
+              {inviteCompanyId ? (companies.find(c => c.id === inviteCompanyId)?.name ?? 'Select') : 'No company'}
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="">No company</Select.Item>
+              {#each companies as company}
+                <Select.Item value={company.id}>{company.name}</Select.Item>
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+      </div>
+
+      <Dialog.Footer>
+        <Button variant="outline" onclick={() => inviteOpen = false}>Cancel</Button>
+        <Button onclick={sendInvite} disabled={inviting || !inviteEmail}>
+          {inviting ? 'Sending...' : 'Send invitation'}
         </Button>
       </Dialog.Footer>
     </Dialog.Content>

@@ -73,6 +73,21 @@ definitions:
             --severity HIGH,CRITICAL --exit-code 1
             helpdesk-frontend:$BITBUCKET_COMMIT
 
+    - step: &update-image-tags
+        name: Update Image Tags
+        image: atlassian/default-image:3
+        script:
+          - SHORT_SHA=${BITBUCKET_COMMIT:0:7}
+          - sed -i "s/tag:\ backend-.*/tag:\ backend-${SHORT_SHA}/" helm/helpdesk/values-prod.yaml
+          - sed -i "s/tag:\ frontend-.*/tag:\ frontend-${SHORT_SHA}/" helm/helpdesk/values-prod.yaml
+          - git config user.email "ci@tnt.co.th"
+          - git config user.name "Bitbucket CI"
+          - git remote set-url origin https://x-token-auth:${BITBUCKET_TOKEN}@bitbucket.org/${BITBUCKET_REPO_FULL_NAME}.git
+          - git add helm/helpdesk/values-prod.yaml
+          - git diff --staged --quiet && echo "No changes to commit" && exit 0
+          - git commit -m "ci: update image tags to ${SHORT_SHA} [skip ci]"
+          - git push origin main
+
 pipelines:
   pull-requests:
     "**":
@@ -102,12 +117,7 @@ pipelines:
       - parallel:
           - step: *build-backend
           - step: *build-frontend
-      # TODO: Add deploy step here
-      # - step:
-      #     name: Deploy to Production
-      #     deployment: production
-      #     script:
-      #       - kubectl apply -f k8s/
+      - step: *update-image-tags
 
   custom:
     security-scan:

@@ -74,6 +74,12 @@
             {loading ? 'Signing in...' : 'Sign in'}
           </Button>
         </form>
+
+        <div class="mt-4 text-center">
+          <a href="/forgot-password" class="text-sm text-muted-foreground hover:text-foreground">
+            Forgot your password?
+          </a>
+        </div>
       </Card.Content>
     </Card.Root>
   </div>

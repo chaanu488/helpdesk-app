@@ -602,9 +602,11 @@ kubectl get application -n argocd helpdesk
 # หรือผ่าน ArgoCD CLI
 argocd app get helpdesk
 argocd app sync helpdesk   # force sync ทันที
-```
 
----
+# sync
+kubectl annotate application -n argocd helpdesk \
+    argocd.argoproj.io/refresh=hard --overwrite
+```
 
 ### Step 7 — CI/CD pipeline (อัปเดต image tag)
 

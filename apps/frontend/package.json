@@ -41,6 +41,10 @@
 		"vitest": "^4.0.18"
 	},
 	"dependencies": {
-		"@elysiajs/eden": "^1.4.8"
+		"@elysiajs/eden": "^1.4.8",
+		"@tiptap/core": "^3.20.1",
+		"@tiptap/extension-link": "^3.20.1",
+		"@tiptap/extension-placeholder": "^3.20.1",
+		"@tiptap/starter-kit": "^3.20.1"
 	}
 }
