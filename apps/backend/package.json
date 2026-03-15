@@ -18,7 +18,7 @@
     "drizzle-orm": "^0.45.1",
     "elysia": "catalog:",
     "minio": "^8.0.5",
-    "nodemailer": "^6.10.1"
+    "nodemailer": "^8.0.2"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
